@@ -22,6 +22,15 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Course'
     }],
+
+    // Multi-tenant support: employees belong to exactly one website.
+    // Stored as a string to match `Website.websiteId`.
+    websiteId: {
+        type: String,
+        default: null,
+        index: true
+    },
+
     role: { // Added role
         type: String,
         enum: ['student', 'admin', 'instructor'],

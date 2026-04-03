@@ -3,6 +3,19 @@
    ============================================ */
 
 document.addEventListener('DOMContentLoaded', function () {
+  const normalizeCategory = (value) =>
+    String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const toSlug = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .trim()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
   // Smooth scrolling for anchor links
   initSmoothScroll();
 
@@ -391,55 +404,65 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // --- BLOG CATEGORY FILTERING LOGIC ---
-  const blogCategoryLinks = document.querySelectorAll('.blog-category-link');
-  const blogCards = document.querySelectorAll('.blog-card');
+  // --- BLOG CATEGORY FILTERING LOGIC (delegated for dynamic content) ---
+  document.addEventListener('click', (e) => {
+    // blog-api.js owns category filtering on blog page
+    if (window.__BLOG_API_MANAGED) return;
 
-  if (blogCategoryLinks.length > 0 && blogCards.length > 0) {
-    blogCategoryLinks.forEach(link => {
-      link.addEventListener('click', function (e) {
-        e.preventDefault(); // Prevent default anchor jump
+    const link = e.target.closest('.blog-category-link');
+    if (!link) return;
 
-        const filterValue = this.getAttribute('data-filter');
+    e.preventDefault(); // Prevent default anchor jump
+    const filterValue = link.getAttribute('data-filter');
+    const normalizedFilter = normalizeCategory(filterValue);
+    const normalizedFilterSlug = toSlug(normalizedFilter);
 
-        // Remove active class from all links
-        blogCategoryLinks.forEach(l => l.classList.remove('active'));
+    // Remove active class from all links
+    document.querySelectorAll('.blog-category-link').forEach(l => l.classList.remove('active'));
 
-        // Add active class to clicked link across all lists (mobile and desktop)
-        const matchingLinks = document.querySelectorAll(`.blog-category-link[data-filter="${filterValue}"]`);
-        matchingLinks.forEach(matchingLink => matchingLink.classList.add('active'));
+    // Add active class to clicked link across all lists (mobile and desktop)
+    Array.from(document.querySelectorAll('.blog-category-link'))
+      .filter((l) => normalizeCategory(l.getAttribute('data-filter')) === normalizedFilter)
+      .forEach((matchingLink) => matchingLink.classList.add('active'));
 
-        // Update mobile toggle text
-        if (blogCategoryActiveText) {
-          // Find the active text by checking the content of the clicked link, ignoring the icon
-          const linkTextNode = Array.from(this.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
-          if (linkTextNode) {
-            blogCategoryActiveText.textContent = linkTextNode.textContent.trim();
-          }
-        }
+    // Update mobile toggle text
+    if (blogCategoryActiveText) {
+      const label = (link.textContent || '').replace(/\s+/g, ' ').trim();
+      blogCategoryActiveText.textContent = label || 'Latest Articles';
+    }
 
-        // Close dropdown on mobile
-        if (window.innerWidth <= 992 && blogCategoryList && blogCategoryList.classList.contains('show')) {
-          blogCategoryList.classList.remove('show');
-          if (blogCategoryToggle) blogCategoryToggle.classList.remove('active');
-        }
+    // Close dropdown on mobile
+    if (
+      window.innerWidth <= 992 &&
+      blogCategoryList &&
+      blogCategoryList.classList.contains('show')
+    ) {
+      blogCategoryList.classList.remove('show');
+      if (blogCategoryToggle) blogCategoryToggle.classList.remove('active');
+    }
 
-        blogCards.forEach(card => {
-          const cardCategory = card.getAttribute('data-category');
+    // Filter current rendered blog cards
+    document.querySelectorAll('.blog-card').forEach(card => {
+      const normalizedCardCategory = normalizeCategory(
+        card.getAttribute('data-category-name') || card.getAttribute('data-category')
+      );
+      const normalizedCardSlug = toSlug(card.getAttribute('data-category-slug') || '');
 
-          if (filterValue === 'all' || filterValue === cardCategory) {
-            card.style.display = 'flex';
-            card.style.animation = 'none';
-            card.offsetHeight; /* Trigger reflow */
-            card.style.animation = 'fadeInCard 0.4s ease forwards';
-          } else {
-            card.style.display = 'none';
-            card.style.animation = 'none';
-          }
-        });
-      });
+      if (
+        normalizedFilter === 'all' ||
+        normalizedFilter === normalizedCardCategory ||
+        normalizedFilterSlug === normalizedCardSlug
+      ) {
+        card.style.display = 'flex';
+        card.style.animation = 'none';
+        card.offsetHeight; /* Trigger reflow */
+        card.style.animation = 'fadeInCard 0.4s ease forwards';
+      } else {
+        card.style.display = 'none';
+        card.style.animation = 'none';
+      }
     });
-  }
+  });
 
   // --- FREE COURSES TAB FILTERING LOGIC ---
   const freeCourseTabs = document.querySelectorAll('.free-course-tab');
