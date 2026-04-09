@@ -8,11 +8,12 @@
     window.AstroChatbotInitialized = true;
 
     const STATES = {
-        CHOOSE_LANG: 'CHOOSE_LANG',
-        ASK_NAME: 'ASK_NAME',
-        MAIN_MENU: 'MAIN_MENU',
+        AI_ASSIST: 'AI_ASSIST',
         ISSUE_FORM: 'ISSUE_FORM',
         COURSE_SEARCH: 'COURSE_SEARCH',
+        ASTROLOGY_CHAT: 'ASTROLOGY_CHAT',
+        ONBOARD_LANG: 'ONBOARD_LANG',
+        ONBOARD_NAME: 'ONBOARD_NAME',
         IDLE: 'IDLE',
         REDIRECTING: 'REDIRECTING'
     };
@@ -21,6 +22,8 @@
         emailRecipient: 'musharraf.codes@gmail.com',
         typingSpeed: 600,
         maxHistory: 150,
+        // Controls whether Gemini AI can be called in ASTROLOGY_CHAT mode.
+        enableAI: true,
         courseMap: {
             'bnn': 'bnn-astrology.html',
             'lal kitab': 'lal-kitab.html',
@@ -40,9 +43,10 @@
     // Load persisted state (Position only, fresh start for conversation)
     let chatData = {
         history: [],
+        aiHistory: [],
         name: '',
         lang: '',
-        state: STATES.CHOOSE_LANG,
+        state: STATES.AI_ASSIST,
         pos: JSON.parse(sessionStorage.getItem('astroChat_pos_v2')) || null,
         isOpen: false
     };
@@ -57,20 +61,26 @@
             <img src="assets/images-optimized/bot-reading.webp" class="bot-img-active" alt="Active Chat">
         </div>
         <div class="astro-chat-container" id="astroChatContainer" role="dialog" aria-labelledby="chatHeaderTitle">
-            <div class="astro-chat-header" id="astroChatHeader">
-                <div class="astro-chat-header-info">
-                    <img src="assets/images-optimized/parashari-header-logo.webp" alt="Parashari Logo">
-                    <h4 id="chatHeaderTitle">Parashari Support Assistant</h4>
+            <span class="astro-phone-side-btn astro-phone-side-btn-right"></span>
+            <span class="astro-phone-side-btn astro-phone-side-btn-left-1"></span>
+            <span class="astro-phone-side-btn astro-phone-side-btn-left-2"></span>
+
+            <div class="astro-phone-screen" id="astroPhoneScreen">
+                <div class="astro-dynamic-island" aria-hidden="true">
+                    <div class="astro-island-dot"></div>
+                    <div class="astro-island-camera"></div>
                 </div>
-                <div class="astro-chat-header-actions">
-                    <button id="astroChatNew" class="astro-btn-new" aria-label="New Chat" title="Start New Chat">New Chat +</button>
-                    <button id="astroChatClose" class="astro-chat-close-btn" aria-label="Minimize Chat" title="Minimize">&times;</button>
+
+                <div class="astro-chat-header" id="astroChatHeader">
+                    <div class="astro-chat-header-actions">
+                        <button id="astroChatNew" class="astro-btn-new" aria-label="Start new chat" title="New Chat">+</button>
+                    </div>
                 </div>
-            </div>
-            <div class="astro-chat-messages" id="astroChatMessages"></div>
-            <div class="astro-chat-input-wrapper" id="astroChatInputWrapper">
-                <input type="text" id="astroChatInput" placeholder="Type your message..." aria-label="Message Input">
-                <button id="astroChatSend" class="astro-chat-send" aria-label="Send Message"><i class="fas fa-paper-plane"></i></button>
+                <div class="astro-chat-messages" id="astroChatMessages"></div>
+                <div class="astro-chat-input-wrapper" id="astroChatInputWrapper">
+                    <input type="text" id="astroChatInput" placeholder="Type your message..." aria-label="Message Input">
+                    <button id="astroChatSend" class="astro-chat-send" aria-label="Send Message"><i class="fas fa-paper-plane"></i></button>
+                </div>
             </div>
         </div>
     `;
@@ -79,15 +89,41 @@
     // --- DOM Elements ---
     const toggle = document.getElementById('astroChatToggle');
     const container = document.getElementById('astroChatContainer');
+    const phoneScreen = document.getElementById('astroPhoneScreen');
     const header = document.getElementById('astroChatHeader');
     const messages = document.getElementById('astroChatMessages');
     const inputWrapper = document.getElementById('astroChatInputWrapper');
     const inputField = document.getElementById('astroChatInput');
     const sendBtn = document.getElementById('astroChatSend');
-    const closeBtn = document.getElementById('astroChatClose');
     const newChatBtn = document.getElementById('astroChatNew');
 
     // --- Core Logic & Helpers ---
+
+    const getPhoneHeight = () => {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const isMobile = w <= 640;
+        const isTablet = w <= 1024 && w > 640;
+
+        // Match the behavior from your reference widget.
+        let offset = 48 + 120 + 16 + 10;
+        let maxHeight = 520;
+
+        if (isMobile) {
+            offset = 12 + 100 + 8 + 10;
+            maxHeight = 460;
+        } else if (isTablet) {
+            offset = 24 + 120 + 16 + 10;
+            maxHeight = 480;
+        }
+        return Math.min(maxHeight, h - offset);
+    };
+
+    function applyPhoneHeight() {
+        if (!phoneScreen) return;
+        const ph = getPhoneHeight();
+        phoneScreen.style.height = `${ph}px`;
+    }
 
     function save() {
         sessionStorage.setItem('astroChat_pos_v2', JSON.stringify(chatData.pos));
@@ -138,11 +174,125 @@
             renderMessage(m.text, m.isBot, isLast ? m.options : null);
         });
 
-        if ([STATES.ASK_NAME, STATES.COURSE_SEARCH].includes(chatData.state)) {
+        if ([STATES.AI_ASSIST, STATES.COURSE_SEARCH, STATES.ASTROLOGY_CHAT].includes(chatData.state)) {
             inputWrapper.classList.add('active');
         } else {
             inputWrapper.classList.remove('active');
         }
+    }
+
+    function showLangOptions() {
+        chatData.state = STATES.ONBOARD_LANG;
+        save();
+        const langOptions = [
+            {
+                label: "English",
+                action: async () => {
+                    chatData.lang = 'english';
+                    chatData.state = STATES.ONBOARD_NAME;
+                    save();
+                    await botSay(getT('askName'));
+                    inputWrapper.classList.add('active');
+                    inputField.focus();
+                }
+            },
+            {
+                label: "Hindi / Hinglish",
+                action: async () => {
+                    chatData.lang = 'hinglish';
+                    chatData.state = STATES.ONBOARD_NAME;
+                    save();
+                    await botSay(getT('askName'));
+                    inputWrapper.classList.add('active');
+                    inputField.focus();
+                }
+            }
+        ];
+        botSay(chatData.lang === 'hinglish' ? "Kripya language choose karein:" : "Please choose your language:", langOptions);
+    }
+
+    function showMainMenu() {
+        chatData.state = STATES.AI_ASSIST;
+        save();
+        const options = buildMainMenuOptions();
+        botSay(chatData.lang === 'hinglish'
+            ? `Dhanyavaad dear ${chatData.name || 'friend'}. Aapko kis cheez mein madad chahiye?`
+            : `Thank you dear ${chatData.name || 'friend'}. How may I assist you today?`, options);
+    }
+
+    function getAiBaseUrlCandidates() {
+        // Priority:
+        // 1) same-origin (''), works when site is served by AB_AI (localhost:3000)
+        // 2) window.BLOG_API_BASE_URL (already injected by backend for other APIs)
+        // 3) localhost:3000 fallback (useful when frontend runs on 5173/other port)
+        const candidates = [];
+
+        if (location.protocol !== 'file:') candidates.push('');
+
+        if (typeof window !== 'undefined' && window.BLOG_API_BASE_URL && typeof window.BLOG_API_BASE_URL === 'string') {
+            candidates.push(window.BLOG_API_BASE_URL.replace(/\/$/, ''));
+        }
+
+        candidates.push('http://localhost:3000');
+
+        // If opened via file://, same-origin is meaningless; keep only absolute URLs
+        const filtered = location.protocol === 'file:'
+            ? candidates.filter((c) => c && !c.startsWith('/'))
+            : candidates;
+
+        // De-dupe while preserving order
+        return Array.from(new Set(filtered));
+    }
+
+    async function fetchWithTimeout(url, options, timeoutMs = 12000) {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } finally {
+            clearTimeout(id);
+        }
+    }
+
+    async function callAstroAssistant(message) {
+        if (!CONFIG.enableAI) {
+            throw new Error('AI_DISABLED');
+        }
+        const bases = getAiBaseUrlCandidates();
+        const payload = JSON.stringify({
+            message,
+            history: chatData.aiHistory,
+            state: chatData.state,
+            name: chatData.name,
+            lang: chatData.lang
+        });
+
+        let lastErr = null;
+
+        for (const base of bases) {
+            const url = `${base}/api/astro-ai/assistant`;
+            try {
+                const res = await fetchWithTimeout(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error || `AI request failed (HTTP ${res.status}) at ${url}`);
+                }
+                return data;
+            } catch (err) {
+                lastErr = err;
+                // Try next base
+            }
+        }
+
+        const hint = location.protocol === 'file:'
+            ? "Open the site via `http://localhost:3000` (not by double-clicking the HTML file)."
+            : "Make sure AB_AI backend is running on port 3000.";
+        throw new Error(`Cannot reach AI server. ${hint}${lastErr?.message ? ` (${lastErr.message})` : ''}`);
     }
 
     // --- State Logic ---
@@ -181,40 +331,212 @@
             save();
             return;
         }
-
-        const typing = document.createElement('div');
-        typing.className = 'typing-indicator';
-        typing.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
-        messages.appendChild(typing);
-        messages.scrollTop = messages.scrollHeight;
-
-        await new Promise(r => setTimeout(r, CONFIG.typingSpeed));
-        typing.remove();
         addMessage(text, true, options);
+    }
+
+    function buildMainMenuOptions() {
+        return [
+            {
+                label: chatData.lang === 'hinglish' ? 'Jyotish / Astrology Chat' : 'Astrology Chat',
+                action: async () => {
+                    chatData.state = STATES.ASTROLOGY_CHAT;
+                    save();
+                    inputWrapper.classList.add('active');
+                    await botSay(chatData.lang === 'hinglish'
+                        ? "Apna astrology sawaal likhiye (kundli, dasha, transit, remedies, etc.)."
+                        : "Ask your astrology question (kundli, dasha, transit, remedies, etc.).");
+                    inputField.focus();
+                }
+            },
+            { label: chatData.lang === 'hinglish' ? 'Platform Samasya' : 'Platform Issue', action: startIssueForm },
+            {
+                label: chatData.lang === 'hinglish' ? 'Course Khojein' : 'Course Search',
+                action: async () => {
+                    chatData.state = STATES.COURSE_SEARCH;
+                    save();
+                    await botSay(chatData.lang === 'hinglish'
+                        ? "Kaunsa course dhoondhna hai? (e.g. KP, Lal Kitab, Vastu, Numerology)"
+                        : "Which course are you looking for? (e.g. KP, Lal Kitab, Vastu, Numerology)");
+                    inputWrapper.classList.add('active');
+                    inputField.focus();
+                }
+            },
+            { label: chatData.lang === 'hinglish' ? 'Sabhi Courses' : 'Show All Courses', action: () => window.location.href = 'courses.html' },
+            {
+                label: chatData.lang === 'hinglish' ? 'Support Karein' : 'Contact Support', action: () => {
+                    setTimeout(() => window.location.href = 'contact.html', 800);
+                }
+            }
+        ];
+    }
+
+    async function aiSay(messageForAI = '') {
+        if (!CONFIG.enableAI) {
+            // Deterministic fallback: no AI calls (saves credits).
+            const lower = String(messageForAI || '').toLowerCase();
+            if (lower === 'start') {
+                await botSay(getT('welcome'));
+                showLangOptions();
+                return;
+            }
+            if (lower === 'main_menu') {
+                showMainMenu();
+                return;
+            }
+            if (lower === 'platform_issue') {
+                await botSay(getT('issueApology', chatData.name || ''));
+                await startIssueForm({ skipAiIntro: true });
+                return;
+            }
+            if (lower === 'course_search') {
+                chatData.state = STATES.COURSE_SEARCH;
+                save();
+                await botSay(chatData.lang === 'hinglish'
+                    ? "Kaunsa course dhoondhna hai? (e.g. KP, Lal Kitab, Vastu, Numerology)"
+                    : "Which course are you looking for? (e.g. KP, Lal Kitab, Vastu, Numerology)");
+                inputWrapper.classList.add('active');
+                inputField.focus();
+                return;
+            }
+            if (lower === 'issue_submitted') {
+                await botSay(getT('successMsg', chatData.name || ''));
+                showMainMenu();
+                return;
+            }
+            await botSay(chatData.lang === 'hinglish'
+                ? "AI abhi disabled hai (credits save karne ke liye). Support options use karein."
+                : "AI is currently disabled to save credits. Please use the support options.");
+            return;
+        }
+        // Keep user-facing chat history separate from model history
+        // so we can clamp and maintain consistent behavior.
+        let typingEl = null;
+        try {
+            const effectiveMessage = (messageForAI || "START").toString();
+
+            // Show typing indicator during network wait (chat-only, not page loader)
+            if (chatData.isOpen) {
+                typingEl = document.createElement('div');
+                typingEl.className = 'typing-indicator';
+                typingEl.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+                messages.appendChild(typingEl);
+                messages.scrollTop = messages.scrollHeight;
+            }
+
+            // Send history WITHOUT the current message; we append user+model turns after success.
+            // Ensure history never starts with model (Gemini requirement).
+            if (chatData.aiHistory.length > 0 && chatData.aiHistory[0]?.role === 'model') {
+                chatData.aiHistory.unshift({ role: 'user', text: 'START' });
+            }
+            chatData.aiHistory = chatData.aiHistory.slice(-20);
+            save();
+
+            const data = await callAstroAssistant(effectiveMessage);
+
+            // Apply extracted profile info
+            if (data?.extractedLang) chatData.lang = data.extractedLang;
+            if (data?.extractedName) chatData.name = data.extractedName;
+            save();
+
+            // Append the successful turn pair to model history (user -> model)
+            chatData.aiHistory.push({ role: 'user', text: effectiveMessage });
+            if (data?.reply) chatData.aiHistory.push({ role: 'model', text: String(data.reply) });
+            chatData.aiHistory = chatData.aiHistory.slice(-20);
+            save();
+
+            const shouldShowMenu = Boolean(data?.showMenu);
+            const intent = String(data?.intent || '');
+
+            // Restore "old options method" UX for onboarding too
+            if (intent === 'ASK_LANG') {
+                const langOptions = [
+                    { label: "English", action: async () => { chatData.lang = 'english'; save(); await aiSay('English'); } },
+                    { label: "Hindi / Hinglish", action: async () => { chatData.lang = 'hinglish'; save(); await aiSay('Hinglish'); } }
+                ];
+                await botSay(String(data.reply || ''), langOptions);
+                inputWrapper.classList.add('active'); // allow typing too
+                inputField.focus();
+                return;
+            }
+
+            // Trigger fixed actions based on intent
+            if (intent === 'PLATFORM_ISSUE') {
+                await botSay(String(data.reply || ''), null);
+                return startIssueForm({ skipAiIntro: true });
+            }
+            if (intent === 'COURSE_SEARCH') {
+                chatData.state = STATES.COURSE_SEARCH;
+                save();
+                await botSay(String(data.reply || ''), null);
+                inputWrapper.classList.add('active');
+                inputField.focus();
+                return;
+            }
+            if (intent === 'SHOW_ALL_COURSES') {
+                await botSay(String(data.reply || ''), null);
+                return setTimeout(() => window.location.href = 'courses.html', 800);
+            }
+            if (intent === 'CONTACT_SUPPORT') {
+                await botSay(String(data.reply || ''), null);
+                return setTimeout(() => window.location.href = 'contact.html', 800);
+            }
+
+            const options = shouldShowMenu ? buildMainMenuOptions() : null;
+            await botSay(String(data.reply || ''), options);
+        } catch (err) {
+            // Helpful for quick debugging in browser devtools
+            try { console.error('Astro assistant error:', err); } catch { }
+
+            const rawMsg = String(err && err.message ? err.message : '');
+            if (rawMsg === 'AI_DISABLED') {
+                await botSay(chatData.lang === 'hinglish'
+                    ? "AI abhi disabled hai (credits save karne ke liye). Support options use karein."
+                    : "AI is currently disabled to save credits. Please use the support options.");
+                return;
+            }
+            const isRateLimited =
+                rawMsg.includes('rate limited') ||
+                rawMsg.includes('[429') ||
+                rawMsg.includes('Too Many Requests') ||
+                rawMsg.includes('quota');
+            const isQuotaBilling =
+                rawMsg.toLowerCase().includes('billing') ||
+                rawMsg.toLowerCase().includes('quota/billing') ||
+                rawMsg.toLowerCase().includes('quota') && rawMsg.toLowerCase().includes('enabled');
+
+            let userText;
+            if (isQuotaBilling) {
+                userText = chatData.lang === 'hinglish'
+                    ? "AI key ka quota/billing enable nahi hai. Google AI Studio / Cloud me billing & quota enable karke dobara try karein."
+                    : "This Gemini API key/project has no quota/billing enabled. Enable billing & quota in Google AI Studio / Cloud, then try again.";
+            } else if (isRateLimited) {
+                userText = chatData.lang === 'hinglish'
+                    ? "AI abhi thoda busy hai. Kripya 1 minute baad dubara try karein."
+                    : "The AI is a bit busy right now. Please try again in about a minute.";
+            } else {
+                const hint = (location.protocol === 'file:')
+                    ? (chatData.lang === 'hinglish'
+                        ? "Tip: file ko directly open na karein—site ko http://localhost:3000 se run karein."
+                        : "Tip: don’t open the HTML file directly—run the site via http://localhost:3000.")
+                    : "";
+                userText = chatData.lang === 'hinglish'
+                    ? "AI se connect nahi ho pa raha. Kripya thoda baad mein try karein. " + hint
+                    : "Unable to connect to AI right now. Please try again in a moment. " + hint;
+            }
+
+            await botSay(userText);
+        } finally {
+            if (typingEl && typingEl.parentNode) typingEl.remove();
+        }
     }
 
     async function startWelcomeFlow() {
         if (chatData.history.length > 0) return;
-
-        await botSay(T.welcome.en); // Universal welcome
-
-        const langOptions = [
-            { label: "English", action: () => selectLanguage('english') },
-            { label: "Hinglish", action: () => selectLanguage('hinglish') }
-        ];
-
-        await botSay("Please choose your preferred language:", langOptions);
-        chatData.state = STATES.CHOOSE_LANG;
+        chatData.state = STATES.AI_ASSIST;
         save();
-    }
-
-    async function selectLanguage(l) {
-        chatData.lang = l;
-        chatData.state = STATES.ASK_NAME;
-        save();
-        await botSay(getT('askName'));
         inputWrapper.classList.add('active');
-        inputField.focus();
+        await botSay(getT('welcome'));
+        showLangOptions();
     }
 
     async function handleInput(val) {
@@ -222,15 +544,31 @@
         addMessage(val, false);
         inputField.value = '';
 
-        if (chatData.state === STATES.ASK_NAME) {
-            const name = val.replace(/[^a-zA-Z\s]/g, '').trim().split(' ').pop();
-            chatData.name = name.length >= 2 ? name.substring(0, 30) : val.substring(0, 30);
-            chatData.state = STATES.MAIN_MENU;
+        // Astrology chat mode: only place where AI can be called (credits are spent only here).
+        if (chatData.state === STATES.ASTROLOGY_CHAT) {
+            if (!CONFIG.enableAI) {
+                await botSay(chatData.lang === 'hinglish'
+                    ? "Astrology AI abhi disabled hai. (Quota/billing enable hone ke baad main isko on kar dunga.)"
+                    : "Astrology AI is currently disabled. (Once quota/billing is enabled, I can turn it on.)");
+                showMainMenu();
+                return;
+            }
+            await aiSay(val);
+            return;
+        }
+
+        // Onboarding: capture name without AI calls
+        if (chatData.state === STATES.ONBOARD_NAME) {
+            chatData.name = val.trim().slice(0, 40);
+            chatData.state = STATES.AI_ASSIST;
             save();
-            inputWrapper.classList.remove('active');
-            await botSay(getT('menuText', chatData.name));
             showMainMenu();
-        } else if (chatData.state === STATES.COURSE_SEARCH) {
+            return;
+        }
+
+        // Local course redirect remains deterministic (fast + reliable),
+        // but the prompt text / flow is AI-driven.
+        if (chatData.state === STATES.COURSE_SEARCH) {
             const q = val.toLowerCase();
             let match = null;
             for (let k in CONFIG.courseMap) if (q.includes(k)) match = CONFIG.courseMap[k];
@@ -239,41 +577,68 @@
                 await botSay(chatData.lang === 'hinglish' ? "Redirect kar rahe hain..." : "Redirecting you now...");
                 setTimeout(() => window.location.href = match, 1500);
             } else {
-                await botSay(chatData.lang === 'hinglish' ? `Sorry dear ${chatData.name}, humein yeh course nahi mila. Kripya check karein.` : `Sorry dear ${chatData.name}, we could not find that course. Kindly check.`);
+                await botSay(chatData.lang === 'hinglish'
+                    ? "Course nahi mila. Kripya KP / Lal Kitab / Vastu / Numerology jaise keywords type karein, ya menu me 'Show All Courses' choose karein."
+                    : "I couldn't find that course. Please type keywords like KP / Lal Kitab / Vastu / Numerology, or choose 'Show All Courses' from the menu.");
                 showMainMenu();
             }
+            return;
         }
+
+        // Support intent shortcuts WITHOUT AI credits
+        const lower = val.toLowerCase();
+        if (lower.includes('platform') || lower.includes('issue') || lower.includes('problem') || lower.includes('error')) {
+            await botSay(getT('issueApology', chatData.name || ''));
+            await startIssueForm({ skipAiIntro: true });
+            return;
+        }
+        if (lower.includes('course')) {
+            chatData.state = STATES.COURSE_SEARCH;
+            save();
+            await botSay(chatData.lang === 'hinglish'
+                ? "Kaunsa course dhoondhna hai? (e.g. KP, Lal Kitab, Vastu, Numerology)"
+                : "Which course are you looking for? (e.g. KP, Lal Kitab, Vastu, Numerology)");
+            inputWrapper.classList.add('active');
+            inputField.focus();
+            return;
+        }
+        if (lower.includes('contact') || lower.includes('support')) {
+            await botSay(chatData.lang === 'hinglish'
+                ? "Aapko Contact page par le ja rahe hain..."
+                : "Taking you to the Contact page...");
+            setTimeout(() => window.location.href = 'contact.html', 700);
+            return;
+        }
+
+        // If AI is disabled, keep it simple and show menu again.
+        if (!CONFIG.enableAI) {
+            await botSay(chatData.lang === 'hinglish'
+                ? "Support ke liye niche options use karein."
+                : "Please use the options below for support.");
+            showMainMenu();
+            return;
+        }
+
+        // AI path (only when enabled)
+        chatData.state = STATES.AI_ASSIST;
+        save();
+        await aiSay(val);
     }
 
-    function showMainMenu() {
-        inputWrapper.classList.remove('active');
-        const options = [
-            { label: chatData.lang === 'hinglish' ? 'Platform Samasya' : 'Platform Issue', action: startIssueForm },
-            {
-                label: chatData.lang === 'hinglish' ? 'Course Khojein' : 'Course Search',
-                action: async () => {
-                    chatData.state = STATES.COURSE_SEARCH;
-                    save();
-                    await botSay(chatData.lang === 'hinglish' ? "Kripya course ka naam type karein..." : "Please type the course name...");
-                    inputWrapper.classList.add('active');
-                    inputField.focus();
-                }
-            },
-            { label: chatData.lang === 'hinglish' ? 'Sabhi Courses' : 'Show All Courses', action: () => window.location.href = 'courses.html' },
-            {
-                label: chatData.lang === 'hinglish' ? 'Support Karein' : 'Contact Support', action: () => {
-                    botSay(chatData.lang === 'hinglish' ? "Contact page par le ja rahe hain..." : "Taking you to our contact page...");
-                    setTimeout(() => window.location.href = 'contact.html', 1500);
-                }
-            }
-        ];
-        botSay(chatData.lang === 'hinglish' ? "Kripya ek option choose karein:" : "Kindly choose an option:", options);
-    }
+    async function startIssueForm({ skipAiIntro = false } = {}) {
+        // Prevent duplicates: if form is already on screen, just scroll to it.
+        const existing = document.getElementById('astroIssueForm');
+        if (existing) {
+            existing.scrollIntoView({ block: 'nearest' });
+            return;
+        }
 
-    async function startIssueForm() {
         chatData.state = STATES.ISSUE_FORM;
         save();
-        await botSay(getT('issueApology', chatData.name));
+        // Only call AI for the intro if enabled and requested.
+        if (!skipAiIntro && CONFIG.enableAI) {
+            await aiSay("PLATFORM_ISSUE");
+        }
 
         const countries = [
             { n: "India", c: "+91" }, { n: "USA", c: "+1" }, { n: "UK", c: "+44" },
@@ -311,7 +676,8 @@
         messages.appendChild(formDiv);
         messages.scrollTop = messages.scrollHeight;
 
-        document.getElementById('astroIssueForm').onsubmit = async (e) => {
+        const issueForm = document.getElementById('astroIssueForm');
+        issueForm.onsubmit = async (e) => {
             e.preventDefault();
             const btn = document.getElementById('issueSubmitBtn');
             const formData = new FormData(e.target);
@@ -335,8 +701,13 @@
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    await botSay(getT('successMsg', chatData.name));
-                    setTimeout(() => { formDiv.remove(); showMainMenu(); }, 2000);
+                    await botSay(getT('successMsg', chatData.name || ''));
+                    setTimeout(() => {
+                        formDiv.remove();
+                        chatData.state = STATES.AI_ASSIST;
+                        save();
+                        showMainMenu();
+                    }, 800);
                 } else throw new Error();
             } catch {
                 btn.disabled = false;
@@ -564,6 +935,7 @@
 
     // Listen for window resize
     window.addEventListener('resize', () => {
+        applyPhoneHeight();
         restorePositions();
         updateContainerPosition();
     });
@@ -579,6 +951,7 @@
     // It has fixed width/height in CSS.
 
     restorePositions();
+    applyPhoneHeight();
 
     // --- Interactions ---
 
@@ -603,16 +976,16 @@
         // Toggle if not dragged
         toggleChat();
     };
-    closeBtn.onclick = toggleChat;
     sendBtn.onclick = () => handleInput(inputField.value.trim());
     inputField.onkeypress = (e) => { if (e.key === 'Enter') sendBtn.click(); };
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && chatData.isOpen) toggleChat(); });
 
     newChatBtn.onclick = () => {
         chatData.history = [];
+        chatData.aiHistory = [];
         chatData.name = '';
         chatData.lang = '';
-        chatData.state = STATES.CHOOSE_LANG;
+        chatData.state = STATES.AI_ASSIST;
         rebuildHistory();
         startWelcomeFlow();
     };

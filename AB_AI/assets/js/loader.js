@@ -69,16 +69,28 @@
     // Fetch
     const originalFetch = window.fetch;
     window.fetch = function () {
-        window.showLoader();
-        return originalFetch.apply(this, arguments)
+        try {
+            const url = arguments && arguments[0];
+            const urlStr = typeof url === 'string' ? url : (url && url.url ? String(url.url) : '');
+            const shouldSkip =
+                urlStr.includes('/api/astro-ai/') ||
+                urlStr.includes('generativelanguage.googleapis.com');
+
+            if (!shouldSkip) window.showLoader();
+
+            return originalFetch.apply(this, arguments)
             .then(res => {
-                window.hideLoader();
+                if (!shouldSkip) window.hideLoader();
                 return res;
             })
             .catch(err => {
-                window.hideLoader();
+                if (!shouldSkip) window.hideLoader();
                 throw err;
             });
+        } catch (e) {
+            // Fail open: don't block the page if detection fails
+            return originalFetch.apply(this, arguments);
+        }
     };
 
 })();

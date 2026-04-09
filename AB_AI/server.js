@@ -12,6 +12,7 @@ const videoRoutes = require('./routes/video');
 const categoriesRoutes = require('./routes/categories');
 const blogsRoutes = require('./routes/blogs');
 const adminBlogsRoutes = require('./routes/adminBlogs');
+const astroAiRoutes = require('./routes/astroAi');
 const { seedBlogCategories } = require('./utils/seedBlogCategories');
 const { seedApprovedBlogs } = require('./utils/seedApprovedBlogs');
 
@@ -19,15 +20,25 @@ const app = express();
 
 // Middleware
 app.use(compression());
+const allowedOrigins = new Set([
+    'https://parashariindia.vercel.app',
+    'https://parashariindian-learning.vercel.app',
+    'https://parashariindia.com',
+    'https://www.parashariindia.com'
+]);
+
 app.use(cors({
-    origin: [
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'https://parashariindia.vercel.app',
-        'https://parashariindian-learning.vercel.app',
-        'https://parashariindia.com',
-        'https://www.parashariindia.com'
-    ],
+    origin: (origin, cb) => {
+        // Allow same-origin / server-to-server / curl (no Origin header)
+        if (!origin) return cb(null, true);
+
+        // Allow any localhost dev server port (5173, 5500, etc.)
+        if (/^https?:\/\/localhost:\d+$/.test(origin)) return cb(null, true);
+
+        if (allowedOrigins.has(origin)) return cb(null, true);
+
+        return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true
 }));
 
@@ -69,14 +80,15 @@ app.get('/api/blog-api-config.js', (req, res) => {
     `);
 });
 
-app.use(express.static('.')); // Serve static files from root
-
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/video', videoRoutes);
 app.use('/api/categories', categoriesRoutes);
 app.use('/api/blogs', blogsRoutes);
 app.use('/api/admin/blogs', adminBlogsRoutes);
+app.use('/api/astro-ai', astroAiRoutes);
+
+app.use(express.static('.')); // Serve static files from root
 
 
 // Database Connection — start server ONLY after MongoDB is ready
